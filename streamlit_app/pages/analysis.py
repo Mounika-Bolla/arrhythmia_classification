@@ -24,6 +24,45 @@ from streamlit_app.utils.helpers import (
 # Import processing modules
 from src import data_processing, peak_detection, feature_extraction
 
+def plot_feature_distribution(features_df, feature_name):
+    """
+    Plot the distribution of a specific feature.
+    
+    Parameters:
+        features_df (DataFrame): DataFrame of features
+        feature_name (str): Name of the feature to plot
+        
+    Returns:
+        Figure: Matplotlib figure
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Check if feature exists
+    if feature_name not in features_df.columns:
+        ax.text(0.5, 0.5, f"Feature '{feature_name}' not found", 
+               ha='center', va='center', fontsize=14)
+        return fig
+    
+    # Plot histogram
+    ax.hist(features_df[feature_name], bins=30, alpha=0.7, color='b')
+    
+    # Add vertical lines for statistics
+    ax.axvline(x=features_df[feature_name].mean(), color='r', linestyle='--', 
+              label=f'Mean: {features_df[feature_name].mean():.3f}')
+    ax.axvline(x=features_df[feature_name].median(), color='g', linestyle='-', 
+              label=f'Median: {features_df[feature_name].median():.3f}')
+    
+    # Set labels and title
+    ax.set_xlabel(feature_name)
+    ax.set_ylabel('Frequency')
+    ax.set_title(f'Distribution of {feature_name}')
+    ax.legend()
+    ax.grid(True)
+    
+    plt.tight_layout()
+    return fig
+
 def show():
     """Show the ECG Analysis page."""
     st.title("ECG Signal Analysis")
@@ -58,16 +97,36 @@ def show():
         )
         
         if data_source == "Upload File":
-            uploaded_file = st.file_uploader(
-                "Upload ECG data file:",
-                type=['csv', 'txt', 'dat'],
-                help="Supported formats: CSV, TXT, DAT (WFDB)"
+            uploaded_files = st.file_uploader(
+                "Upload ECG data file(s):",
+                type=['csv', 'txt', 'dat', 'hea'],
+                accept_multiple_files=True,
+                help="Supported formats: CSV, TXT, or WFDB files (.dat and .hea together)"
             )
-            
-            if uploaded_file is not None:
+    
+            if uploaded_files:
                 if st.button("Load Data"):
                     with st.spinner("Loading data..."):
-                        time, ecg_signal, fs, filename = load_file(uploaded_file)
+                        time, ecg_signal, fs, filename = load_file(uploaded_files)
+                    
+                    if time is not None and ecg_signal is not None and fs is not None:
+                        st.session_state.ecg_data = (time, ecg_signal, fs)
+                        st.session_state.filename = filename
+                        st.success(f"Successfully loaded {filename}")
+                        
+                        # Reset processing results
+                        st.session_state.processed_signal = None
+                        st.session_state.r_peaks = None
+                        st.session_state.pqrst_peaks = None
+                        st.session_state.intervals = None
+                        st.session_state.heart_rate = None
+                        st.session_state.heartbeats = None
+                        st.session_state.features_df = None
+                
+            if uploaded_files is not None:
+                if st.button("Load Data"):
+                    with st.spinner("Loading data..."):
+                        time, ecg_signal, fs, filename = load_file(uploaded_files)
                         
                         if time is not None and ecg_signal is not None and fs is not None:
                             st.session_state.ecg_data = (time, ecg_signal, fs)

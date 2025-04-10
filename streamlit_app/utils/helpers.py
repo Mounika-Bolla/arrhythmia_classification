@@ -17,61 +17,95 @@ import glob
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src import data_processing, peak_detection, feature_extraction
 
-def load_file(uploaded_file):
+def load_file(uploaded_files):
     """
-    Load and preprocess an uploaded ECG file.
+    Load and preprocess uploaded ECG files (supports WFDB format with .dat and .hea files).
     
     Parameters:
-        uploaded_file: Streamlit UploadedFile object
+        uploaded_files: List of Streamlit UploadedFile objects
         
     Returns:
         tuple: (time, ecg_signal, fs, filename)
     """
     try:
-        # Get file name and extension
-        file_name = uploaded_file.name
-        file_ext = os.path.splitext(file_name)[1].lower()
-        
-        # Create a temporary directory to save the file
+        if not uploaded_files:
+            st.error("No files uploaded")
+            return None, None, None, None
+            
+        # Create a temporary directory to save the files
         tmp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tmp')
         os.makedirs(tmp_dir, exist_ok=True)
         
-        # Save uploaded file to temp directory
-        tmp_path = os.path.join(tmp_dir, file_name)
-        with open(tmp_path, 'wb') as f:
-            f.write(uploaded_file.getbuffer())
-        
-        # Process based on file extension
-        if file_ext in ['.csv', '.txt']:
-            # Use data_processing module to load CSV
-            time, ecg_signal, fs = data_processing.load_ecg_data(tmp_path)
+        # Save all uploaded files to temp directory
+        file_paths = {}
+        for uploaded_file in uploaded_files:
+            file_name = uploaded_file.name
+            file_ext = os.path.splitext(file_name)[1].lower()
+            record_name = os.path.splitext(file_name)[0]
+            
+            # Save the file
+            tmp_path = os.path.join(tmp_dir, file_name)
+            with open(tmp_path, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+                
+            # Store file path by extension
+            file_paths[file_ext] = tmp_path
+            
+            # Store record name
+            if file_ext in ['.dat', '.hea']:
+                current_record = record_name
+                
+        # Check file types and process accordingly
+        if '.csv' in file_paths:
+            # Process CSV file
+            csv_path = file_paths['.csv']
+            time, ecg_signal, fs = data_processing.load_ecg_data(csv_path)
             
             if time is None or ecg_signal is None or fs is None:
-                st.error(f"Failed to load {file_name}. Ensure it contains ECG data.")
-                return None, None, None, file_name
+                st.error(f"Failed to load {os.path.basename(csv_path)}. Ensure it contains ECG data.")
+                return None, None, None, os.path.basename(csv_path)
                 
-        elif file_ext in ['.dat', '.hea', '.atr']:
+            return time, ecg_signal, fs, os.path.basename(csv_path)
+            
+        elif '.dat' in file_paths and '.hea' in file_paths:
+            # Process WFDB format files
+            import wfdb
+            
+            # Check if both files have the same record name
+            dat_record = os.path.splitext(os.path.basename(file_paths['.dat']))[0]
+            hea_record = os.path.splitext(os.path.basename(file_paths['.hea']))[0]
+            
+            if dat_record != hea_record:
+                st.error(f"Mismatched record names: {dat_record}.dat and {hea_record}.hea")
+                return None, None, None, f"{dat_record}.dat"
+            
+            # Load the record
             try:
-                # Try to load WFDB record
-                import wfdb
-                record_path = os.path.splitext(tmp_path)[0]  # Remove extension
-                record = wfdb.rdrecord(record_path)
+                record = wfdb.rdrecord(os.path.join(tmp_dir, dat_record))
                 ecg_signal = record.p_signal
                 fs = record.fs
                 time = np.arange(len(ecg_signal)) / fs
+                
+                return time, ecg_signal, fs, f"{dat_record}.dat"
             except Exception as e:
-                st.error(f"Failed to load {file_name}: {e}")
-                return None, None, None, file_name
-        else:
-            st.error(f"Unsupported file format: {file_ext}")
-            return None, None, None, file_name
+                st.error(f"Failed to load WFDB record {dat_record}: {e}")
+                return None, None, None, f"{dat_record}.dat"
+                
+        elif '.dat' in file_paths:
+            st.error(f"Missing header file (.hea) for {os.path.basename(file_paths['.dat'])}. Please upload both .dat and .hea files.")
+            return None, None, None, os.path.basename(file_paths['.dat'])
             
-        # Return loaded data
-        return time, ecg_signal, fs, file_name
-        
+        elif '.hea' in file_paths:
+            st.error(f"Missing data file (.dat) for {os.path.basename(file_paths['.hea'])}. Please upload both .dat and .hea files.")
+            return None, None, None, os.path.basename(file_paths['.hea'])
+            
+        else:
+            st.error("Unsupported file format. Please upload CSV or WFDB (.dat and .hea) files.")
+            return None, None, None, "Unknown"
+            
     except Exception as e:
         st.error(f"Error loading file: {e}")
-        return None, None, None, uploaded_file.name
+        return None, None, None, "Error"
 
 def generate_synthetic_ecg(duration=10, fs=250, heart_rate=60, noise_level=0.05):
     """
@@ -571,3 +605,123 @@ def cached_extract_features(heartbeats_array, fs, include_advanced, quick_mode):
             heartbeats_array, fs, include_advanced)
             
     return features
+
+def save_results(output_dir, ecg_data, processed_signal, r_peaks, pqrst_peaks, intervals, features_df, metadata):
+    """
+    Save analysis results to files.
+    
+    Parameters:
+        output_dir (str): Directory to save results
+        ecg_data (tuple): (time, ecg_signal, fs)
+        processed_signal (array): Processed ECG signal
+        r_peaks (array): R-peak indices
+        pqrst_peaks (dict): PQRST peak indices
+        intervals (dict): ECG intervals
+        features_df (DataFrame): Extracted features
+        metadata (dict): Additional metadata
+        
+    Returns:
+        str: Path to the results directory
+    """
+    try:
+        # Create results directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_dir = os.path.join(output_dir, f"ecg_analysis_{timestamp}")
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Unpack ECG data
+        time, ecg_signal, fs = ecg_data
+        
+        # Save raw ECG data
+        raw_df = pd.DataFrame({"Time": time})
+        for i in range(ecg_signal.shape[1]):
+            raw_df[f"Channel_{i+1}"] = ecg_signal[:, i]
+        raw_df.to_csv(os.path.join(results_dir, "raw_ecg.csv"), index=False)
+        
+        # Save processed ECG data
+        processed_df = pd.DataFrame({"Time": time})
+        for i in range(processed_signal.shape[1]):
+            processed_df[f"Channel_{i+1}"] = processed_signal[:, i]
+        processed_df.to_csv(os.path.join(results_dir, "processed_ecg.csv"), index=False)
+        
+        # Save peaks - Handle different array lengths
+        peaks_data = {}
+        max_len = len(r_peaks)
+        peaks_data['R_peaks'] = r_peaks
+        
+        # Add other peak types, padding shorter arrays with NaN
+        for wave, indices in pqrst_peaks.items():
+            if wave != "R":  # R peaks already added
+                if len(indices) > max_len:
+                    max_len = len(indices)
+                peaks_data[f"{wave}_peaks"] = indices
+        
+        # Create DataFrame with NaN padding
+        peaks_df = pd.DataFrame()
+        for key, values in peaks_data.items():
+            # Create a Series with the appropriate length filled with NaN
+            series = pd.Series(index=range(max_len), dtype=float)
+            # Fill in the actual values
+            series.iloc[:len(values)] = values
+            peaks_df[key] = series
+        
+        peaks_df.to_csv(os.path.join(results_dir, "peaks.csv"), index=False)
+        
+        # Save intervals
+        if intervals:
+            intervals_dict = {}
+            for interval_name, values in intervals.items():
+                if not interval_name.endswith("_mean") and not interval_name.endswith("_std"):
+                    intervals_dict[interval_name] = values
+            
+            # Only create intervals DataFrame if we have actual interval data
+            if intervals_dict:
+                intervals_df = pd.DataFrame()
+                max_len = 0
+                
+                # Find the maximum length
+                for key, values in intervals_dict.items():
+                    if isinstance(values, (list, np.ndarray)) and len(values) > max_len:
+                        max_len = len(values)
+                
+                # Create DataFrame with NaN padding
+                for key, values in intervals_dict.items():
+                    if isinstance(values, (list, np.ndarray)):
+                        # Create a Series with the appropriate length filled with NaN
+                        series = pd.Series(index=range(max_len), dtype=float)
+                        # Fill in the actual values
+                        series.iloc[:len(values)] = values
+                        intervals_df[key] = series
+                
+                if not intervals_df.empty:
+                    intervals_df.to_csv(os.path.join(results_dir, "intervals.csv"), index=False)
+            
+            # Save interval statistics
+            stats_dict = {key: [value] for key, value in intervals.items() 
+                         if key.endswith("_mean") or key.endswith("_std")}
+            
+            if stats_dict:
+                stats_df = pd.DataFrame(stats_dict)
+                stats_df.to_csv(os.path.join(results_dir, "interval_stats.csv"), index=False)
+        
+        # Save features
+        if features_df is not None and not features_df.empty:
+            features_df.to_csv(os.path.join(results_dir, "features.csv"), index=False)
+        
+        # Save metadata
+        metadata["timestamp"] = timestamp
+        metadata["fs"] = fs
+        metadata["num_channels"] = ecg_signal.shape[1]
+        metadata["duration"] = len(time) / fs
+        metadata["num_heartbeats"] = len(r_peaks)
+        metadata["heart_rate"] = metadata.get("heart_rate", 0)
+        
+        with open(os.path.join(results_dir, "metadata.txt"), "w") as f:
+            for key, value in metadata.items():
+                f.write(f"{key}: {value}\n")
+        
+        return results_dir
+        
+    except Exception as e:
+        st.error(f"Error saving results: {e}")
+        return None
