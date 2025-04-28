@@ -133,9 +133,46 @@ def show():
             
             # Classify heartbeats
             with st.spinner("Classifying heartbeats..."):
-                class_ids, class_names, probabilities = arrhythmia_classifier.classify_multiple_heartbeats(
-                    heartbeats, pipeline, feature_extraction, label_names
-                )
+                try:
+                    class_ids, class_names, probabilities = arrhythmia_classifier.classify_multiple_heartbeats(
+                        heartbeats, pipeline, feature_extraction, label_names
+                    )
+                except ValueError as e:
+                    if "X has 51 features, but StandardScaler is expecting 10 features as input" in str(e):
+                        st.warning(f"Feature mismatch detected: {str(e)}")
+                        
+                        # Extract features manually and use only first 10 features
+                        features_list = []
+                        for beat in heartbeats:
+                            features = feature_extraction.extract_heartbeat_features(beat, include_advanced=False)
+                            features_df = pd.DataFrame([features])
+                            features_df = features_df.fillna(0)
+                            # Take only first 10 columns
+                            features_df = features_df.iloc[:, :10]
+                            features_list.append(features_df.values[0])
+                        
+                        # Create array with only 10 features
+                        features_array = np.array(features_list)
+                        
+                        # Apply pipeline steps manually
+                        X_scaled = pipeline.named_steps['scaler'].transform(features_array)
+                        class_ids = pipeline.named_steps['classifier'].predict(X_scaled)
+                        
+                        # Get probabilities if available
+                        if hasattr(pipeline.named_steps['classifier'], 'predict_proba'):
+                            probabilities = pipeline.named_steps['classifier'].predict_proba(X_scaled)
+                        else:
+                            probabilities = None
+                        
+                        # Get class names
+                        class_names = []
+                        for class_id in class_ids:
+                            if class_id in label_names:
+                                class_names.append(label_names[class_id])
+                            else:
+                                class_names.append(f"Unknown ({class_id})")
+                    else:
+                        raise e
             
             # Count arrhythmia types
             class_counts = pd.Series(class_names).value_counts()
@@ -192,7 +229,7 @@ def show():
                 step=5
             )
             
-            max_start_time = max(0, len(time)/fs - duration)
+            max_start_time = float(max(0.1, len(time)/fs - duration))
             start_time = st.slider(
                 "Start Time (seconds):",
                 min_value=0.0,
@@ -254,11 +291,16 @@ def show():
             st.pyplot(fig)
             
             # Download link for classification results
+            # Ensure all arrays are the same length
+            min_length = min(len(r_peaks), len(class_names))
+            if probabilities is not None:
+                min_length = min(min_length, len(probabilities))
+            
             results_df = pd.DataFrame({
-                'Time (s)': time[r_peaks],
-                'R_Peak_Index': r_peaks,
-                'Beat_Type': class_names,
-                'Confidence': [np.max(prob) if prob is not None else None for prob in probabilities]
+                'Time (s)': time[r_peaks[:min_length]],
+                'R_Peak_Index': r_peaks[:min_length],
+                'Beat_Type': class_names[:min_length],
+                'Confidence': [np.max(prob) if prob is not None else None for prob in probabilities[:min_length]] if probabilities is not None else [None] * min_length
             })
             
             st.markdown(get_download_link(results_df, "classification_results.csv", "Download Classification Results"), unsafe_allow_html=True)
@@ -268,7 +310,7 @@ def show():
             st.header("Abnormal Beat Analysis")
             
             # Filter abnormal beats
-            abnormal_indices = [i for i, name in enumerate(class_names) if name != "Normal"]
+            abnormal_indices = [i for i, name in enumerate(class_names) if name != "Normal" and i < min_length]
             
             if abnormal_indices:
                 # Select which abnormal beats to display
@@ -326,7 +368,7 @@ def show():
                         st.write(f"R-Peak Index: {r_peaks[idx]}")
                         st.write(f"Time: {time[r_peaks[idx]]:.2f} seconds")
                         
-                        if probabilities is not None:
+                        if probabilities is not None and idx < len(probabilities):
                             st.write(f"Confidence: {np.max(probabilities[idx]):.2f}")
                             
                             # Show probability breakdown
@@ -403,7 +445,7 @@ def show():
                 st.warning("Not enough beats detected for rhythm analysis.")
             
             # Save results
-            if st.button("Save Classification Results"):
+            if st.button("Save Classification Results", key="save_classification_button"):
                 # Create output directory
                 output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
                                          'results', 'classifications')
