@@ -48,57 +48,59 @@ def show():
     st.header("ECG Signal Example")
     
     # Generate a demo ECG signal
-    time, ecg_signal, fs = generate_synthetic_ecg(
+    time, ecg_signal = generate_synthetic_ecg(
         duration=5,
         fs=250,
-        heart_rate=70,
+        hr=70,
         noise_level=0.05
     )
     
-    # Plot the demo ECG
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(time, ecg_signal[:, 0])
-    
-    # Add PQRST labels at specific positions
-    # These positions are approximate for visualization
-    for i in range(3):
-        t_center = i * 0.85 + 0.5  # R-peak positions
+    if time is not None and ecg_signal is not None:
+        # Plot the demo ECG
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(time, ecg_signal)
         
-        # R peak
-        ax.plot(t_center, ecg_signal[int(t_center * fs), 0], 'ro', markersize=8)
-        ax.annotate('R', (t_center, ecg_signal[int(t_center * fs), 0]), 
-                   xytext=(0, 10), textcoords='offset points', ha='center')
+        # Add PQRST labels at specific positions
+        # These positions are approximate for visualization
+        fs = 250  # sampling frequency
+        for i in range(3):
+            t_center = i * 0.85 + 0.5  # R-peak positions
+            
+            # R peak
+            ax.plot(t_center, ecg_signal[int(t_center * fs)], 'ro', markersize=8)
+            ax.annotate('R', (t_center, ecg_signal[int(t_center * fs)]), 
+                       xytext=(0, 10), textcoords='offset points', ha='center')
+            
+            # P wave (before R)
+            p_center = t_center - 0.15
+            ax.plot(p_center, ecg_signal[int(p_center * fs)], 'bo', markersize=6)
+            ax.annotate('P', (p_center, ecg_signal[int(p_center * fs)]), 
+                       xytext=(0, 10), textcoords='offset points', ha='center')
+            
+            # Q wave (just before R)
+            q_center = t_center - 0.04
+            ax.plot(q_center, ecg_signal[int(q_center * fs)], 'go', markersize=6)
+            ax.annotate('Q', (q_center, ecg_signal[int(q_center * fs)]), 
+                       xytext=(0, -15), textcoords='offset points', ha='center')
+            
+            # S wave (just after R)
+            s_center = t_center + 0.04
+            ax.plot(s_center, ecg_signal[int(s_center * fs)], 'mo', markersize=6)
+            ax.annotate('S', (s_center, ecg_signal[int(s_center * fs)]), 
+                       xytext=(0, -15), textcoords='offset points', ha='center')
+            
+            # T wave (after R)
+            t_center = t_center + 0.2
+            ax.plot(t_center, ecg_signal[int(t_center * fs)], 'co', markersize=6)
+            ax.annotate('T', (t_center, ecg_signal[int(t_center * fs)]), 
+                       xytext=(0, 10), textcoords='offset points', ha='center')
         
-        # P wave (before R)
-        p_center = t_center - 0.15
-        ax.plot(p_center, ecg_signal[int(p_center * fs), 0], 'bo', markersize=6)
-        ax.annotate('P', (p_center, ecg_signal[int(p_center * fs), 0]), 
-                   xytext=(0, 10), textcoords='offset points', ha='center')
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Amplitude")
+        ax.set_title("Example ECG Signal with PQRST Waves")
+        ax.grid(True)
         
-        # Q wave (just before R)
-        q_center = t_center - 0.04
-        ax.plot(q_center, ecg_signal[int(q_center * fs), 0], 'go', markersize=6)
-        ax.annotate('Q', (q_center, ecg_signal[int(q_center * fs), 0]), 
-                   xytext=(0, -15), textcoords='offset points', ha='center')
-        
-        # S wave (just after R)
-        s_center = t_center + 0.04
-        ax.plot(s_center, ecg_signal[int(s_center * fs), 0], 'mo', markersize=6)
-        ax.annotate('S', (s_center, ecg_signal[int(s_center * fs), 0]), 
-                   xytext=(0, -15), textcoords='offset points', ha='center')
-        
-        # T wave (after R)
-        t_center = t_center + 0.2
-        ax.plot(t_center, ecg_signal[int(t_center * fs), 0], 'co', markersize=6)
-        ax.annotate('T', (t_center, ecg_signal[int(t_center * fs), 0]), 
-                   xytext=(0, 10), textcoords='offset points', ha='center')
-    
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Amplitude")
-    ax.set_title("Example ECG Signal with PQRST Waves")
-    ax.grid(True)
-    
-    st.pyplot(fig)
+        st.pyplot(fig)
     
     # Features section
     st.header("Key Features")

@@ -1,4 +1,14 @@
 import streamlit as st
+
+# This must be the first Streamlit command
+st.set_page_config(
+    page_title="ECG Analysis App",
+    page_icon="❤️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Then import other modules
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,19 +18,11 @@ import os
 # Add the project root directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# In app.py, change the import to:
+# Import page modules
 from streamlit_app.pages.home import show as show_home
 from streamlit_app.pages.analysis import show as show_analysis
 from streamlit_app.pages.visualization import show as show_visualization
 from streamlit_app.pages.classification import show as show_classification
-
-# Configure page settings
-st.set_page_config(
-    page_title="ECG Analysis Tool",
-    page_icon="❤️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS
 def load_css():
